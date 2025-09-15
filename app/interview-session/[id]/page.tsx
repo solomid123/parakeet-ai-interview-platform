@@ -51,7 +51,7 @@ export default function InterviewSessionPage({ params }: { params: { id: string 
   const [cvContent, setCvContent] = useState("")
 
   // Initialize Gemini AI
-  const genAI = new GoogleGenerativeAI('AIzaSyCX0g4itUe_Nfkm7XEzwW4-OWvkKSykyIE')
+  const genAI = new GoogleGenerativeAI('AIzaSyCM-ayeO7JR8EkBL-b4NP0KIvkhAL925-k')
 
   useEffect(() => {
     if (isConnected) {
