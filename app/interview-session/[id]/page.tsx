@@ -51,7 +51,7 @@ export default function InterviewSessionPage({ params }: { params: { id: string 
   const [cvContent, setCvContent] = useState("")
 
   // Initialize Gemini AI
-  const genAI = new GoogleGenerativeAI('AIzaSyCM-ayeO7JR8EkBL-b4NP0KIvkhAL925-k')
+  const genAI = new GoogleGenerativeAI('AIzaSyDri_3RxakwST_rggB1QKUde_q7J577Q-4')
 
   useEffect(() => {
     if (isConnected) {
@@ -422,6 +422,45 @@ export default function InterviewSessionPage({ params }: { params: { id: string 
     router.push("/dashboard/interview-sessions")
   }
 
+  // Test API connectivity with correct model
+  const testAPIConnection = async () => {
+    try {
+      console.log('🧪 Testing API connection...')
+      console.log('🔧 Using model: gemini-2.0-flash (optimized for speed)')
+      
+      // Using the fastest and most reliable model - gemini-2.0-flash
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" })
+      const result = await model.generateContent("Hello, can you respond with just 'API working'?")
+      const response = await result.response
+      const text = response.text()
+      console.log('✅ API Test Success:', text)
+      
+      // Add success message to chat
+      const successMessage: ChatMessage = {
+        id: Date.now().toString(),
+        type: 'ai',
+        content: `✅ API Connection Test Successful!\n\nModel: gemini-2.0-flash (optimized for speed)\nResponse: ${text}`,
+        timestamp: new Date()
+      }
+      setChatMessages(prev => [...prev, successMessage])
+      
+      return { success: true, response: text }
+    } catch (error) {
+      console.error('❌ API Test Failed:', error)
+      
+      // Add error message to chat
+      const errorMessage: ChatMessage = {
+        id: Date.now().toString(),
+        type: 'ai',
+        content: `❌ API Connection Test Failed!\n\nError: ${error instanceof Error ? error.message : 'Unknown error'}\n\nTip: Check your API key or try a different model.`,
+        timestamp: new Date()
+      }
+      setChatMessages(prev => [...prev, errorMessage])
+      
+      return { success: false, error: error }
+    }
+  }
+
   const generateAIResponse = async () => {
     setIsGeneratingResponse(true)
     setStreamingResponse("")
@@ -437,7 +476,9 @@ export default function InterviewSessionPage({ params }: { params: { id: string 
     })
 
     try {
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
+      console.log('🔑 Initializing Gemini AI model...')
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" })
+      console.log('✅ Model initialized successfully (gemini-2.0-flash - optimized for speed)')
 
       const hasTranscript = currentTranscript.length > 0
       
@@ -465,66 +506,29 @@ export default function InterviewSessionPage({ params }: { params: { id: string 
       console.log('🗣️ AI will respond in:', responseLanguage)
 
       const context = hasQuestion ? `
-You are an expert job candidate in an interview. Analyze the conversation and provide an appropriately sized response based on the question type.
+You are a job candidate in an interview.
 
-**Position**: ${jobDescription}
-**Your CV/Background**: ${cvContent}
-**IMPORTANT - Language**: You MUST answer in ${responseLanguage}. This is critical - respond only in ${responseLanguage}.
+Position: ${jobDescription}
+Your background: ${cvContent}
+Language: ${responseLanguage}
 
-**Conversation/Question**: "${cleanTranscript}"
+Question heard: "${cleanTranscript}"
 
-**Response Format Required:**
-1. First, identify and categorize the main interview question
-2. Then provide your appropriately detailed strategic response
+Format:
+Question: [Brief question summary in ${responseLanguage}]
 
-**Question Analysis Guidelines:**
-
-**DETAILED ANSWERS (3-5+ sentences with examples) for:**
-- Experience questions: "Tell me about your experience with...", "Describe your background in..."
-- Technical skills: "How do you approach...", "What's your experience with [technology]..."
-- Project examples: "Give me an example of...", "Tell me about a time when..."
-- Problem-solving: "How would you handle...", "Describe a challenge you faced..."
-- Strengths/achievements: "What are your main strengths?", "What are you most proud of?"
-- Behavioral questions: "Describe a situation where...", "How do you work in teams?"
-
-**BRIEF ANSWERS (1-2 sentences) for:**
-- Yes/no questions: "Do you have experience with...", "Are you familiar with...", "Can you..."
-- Availability: "When can you start?", "What's your availability?"
-- Simple preferences: "Do you prefer...", "What do you think about..."
-- Logistics: "Any questions for us?", "How did you hear about us?"
-- Confirmation questions: "Is that correct?", "Do you understand?"
-
-**Instructions:**
-- Format your response with clear sections
-- Use "**1. Question Analysis:**" as the first section header
-- Use "**2. Strategic Response in ${responseLanguage}:**" as the second section header
-- In section 1: Categorize the question type and explain the appropriate response length
-- In section 2: Provide response matching the identified category
-  - For DETAILED questions: Include multiple specific examples, concrete details, numbers, achievements, storytelling
-  - For BRIEF questions: Give direct, concise answers while still showing competence
-- CRITICAL: Respond ONLY in ${responseLanguage}
-
-Generate your intelligent analysis and appropriately sized response:
+Answer: [Give a complete professional answer in ${responseLanguage}. Include specific examples and details from your background. Make it comprehensive but focused - no verbose analysis, just direct professional response.]
 ` : hasTranscript ? `
-You are in an interview but the conversation isn't clear yet. Provide a helpful response.
+You heard something unclear: "${cleanTranscript}"
 
-**Position**: ${jobDescription}
-**Your Background**: ${cvContent}
-**IMPORTANT - Language**: You MUST respond in ${responseLanguage}. This is critical - respond only in ${responseLanguage}.
-
-**What you heard**: "${cleanTranscript}"
-
-**Response Format:**
-**1. Analysis:** Explain what you heard and whether it seems complete or partial
-**2. Response in ${responseLanguage}:** Give an appropriate professional response - if it seems like a partial question, ask for clarification politely. If it contains enough context, provide a brief relevant response.
+Ask for clarification politely in ${responseLanguage}.
 ` : `
-You are starting an interview for: ${jobDescription}
+Give a professional introduction for: ${jobDescription}
 
-**Your Background**: ${cvContent}
-**IMPORTANT - Language**: You MUST respond in ${responseLanguage}. This is critical - respond only in ${responseLanguage}.
+Your background: ${cvContent}
+Language: ${responseLanguage}
 
-**Response Format:**
-**Professional Introduction in ${responseLanguage}:** Give a comprehensive, well-structured introduction that highlights your key strengths and most relevant achievements for this role. Include 2-3 specific examples that demonstrate your value.
+Include your key experience, skills, and why you're interested in this position. Make it complete but focused.
 `
 
       // Use streaming response instead of regular generateContent
@@ -574,28 +578,27 @@ You are starting an interview for: ${jobDescription}
       if (hasTranscript) {
         setTranscript("")
         setCurrentPartialWords("")
-        console.log('🎯 Question Detection Results:', {
-          originalLength: currentTranscript.length,
-          cleanedText: cleanTranscript.substring(0, 100) + '...',
-          hasQuestion: hasQuestion,
-          questionIndicators: {
-            hasQuestionMark: cleanTranscript.includes('?'),
-            hasQuestionWords: /\b(tell me|describe|explain|what|how|why|when|where|can you|would you|could you|do you|have you|are you|will you)\b/i.test(cleanTranscript),
-            hasInterviewKeywords: /\b(about|experience|background|skills|projects|work|role|position|company|team)\b/i.test(cleanTranscript),
-            lengthThreshold: cleanTranscript.length >= 30
-          }
-        })
       }
-      
-      console.log('🤖 AI Response generated for:', hasQuestion ? 'detected question' : hasTranscript ? 'unclear conversation' : 'introduction')
 
     } catch (error) {
       console.error('Error generating AI response:', error)
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : null,
+        name: error instanceof Error ? error.name : null,
+        error: error
+      })
+      
+      // More descriptive error message
+      let errorText = 'Sorry, I encountered an error generating a response. Please try again.'
+      if (error instanceof Error) {
+        errorText = `AI Error: ${error.message}. Please check console for details.`
+      }
       
       const errorMessage: ChatMessage = {
         id: Date.now().toString(),
         type: 'ai',
-        content: 'Sorry, I encountered an error generating a response. Please try again.',
+        content: errorText,
         timestamp: new Date()
       }
       setChatMessages(prev => [...prev, errorMessage])
@@ -870,20 +873,31 @@ You are starting an interview for: ${jobDescription}
               </Button>
             </div>
 
-            <Button 
-              className="w-full bg-gray-700 hover:bg-gray-800 disabled:opacity-50" 
-              onClick={generateAIResponse}
-              disabled={isGeneratingResponse}
-            >
-              {isGeneratingResponse ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                  Generating Response...
-                </>
-              ) : (
-                transcript.length >= 20 ? '🎯 AI Answer (Space)' : '✨ AI Introduction (Space)'
-              )}
-            </Button>
+            <div className="space-y-2">
+              <Button 
+                className="w-full bg-gray-700 hover:bg-gray-800 disabled:opacity-50" 
+                onClick={generateAIResponse}
+                disabled={isGeneratingResponse}
+              >
+                {isGeneratingResponse ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Generating Response...
+                  </>
+                ) : (
+                  transcript.length >= 20 ? '🎯 AI Answer (Space)' : '✨ AI Introduction (Space)'
+                )}
+              </Button>
+              
+              <Button 
+                variant="outline" 
+                className="w-full text-xs" 
+                onClick={testAPIConnection}
+                disabled={isGeneratingResponse}
+              >
+                🧪 Test API Connection (gemini-2.0-flash)
+              </Button>
+            </div>
           </div>
         </div>
       </div>
