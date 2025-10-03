@@ -15,6 +15,9 @@ import { createSpeechmaticsJWT } from '@speechmatics/auth'
 // Import Google Gemini AI
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
+// Import Socket.IO for Whisper backend
+import { io, Socket } from 'socket.io-client'
+
 interface ChatMessage {
   id: string
   type: 'user' | 'ai'
@@ -27,6 +30,7 @@ export default function InterviewSessionPage({ params }: { params: { id: string 
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const speechmaticsClientRef = useRef<RealtimeClient | null>(null)
+  const whisperSocketRef = useRef<Socket | null>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   
@@ -42,6 +46,8 @@ export default function InterviewSessionPage({ params }: { params: { id: string 
   const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [selectedLanguage, setSelectedLanguage] = useState("english")
+  const [transcriptionMethod, setTranscriptionMethod] = useState<'speechmatics' | 'whisper'>('speechmatics')
+  const [whisperConnected, setWhisperConnected] = useState(false)
 
   // AI Chat states
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
@@ -135,7 +141,11 @@ export default function InterviewSessionPage({ params }: { params: { id: string 
 
       // Start transcription when stream is available
       if (stream.getAudioTracks().length > 0) {
-        startTranscription(stream)
+        if (transcriptionMethod === 'whisper') {
+          startWhisperTranscription(stream)
+        } else {
+          startTranscription(stream)
+        }
       }
     }
   }, [stream])
@@ -336,6 +346,115 @@ export default function InterviewSessionPage({ params }: { params: { id: string 
     }
   }
 
+  // Whisper Local Transcription Functions
+  const startWhisperTranscription = async (mediaStream: MediaStream) => {
+    try {
+      console.log('Starting Whisper local transcription for language:', selectedLanguage)
+      setIsTranscribing(true)
+
+      // Map language selection
+      const languageCode = selectedLanguage === 'french' ? 'fr' : 'en'
+
+      // Connect to local Whisper server
+      const socket = io('http://localhost:5000')
+      whisperSocketRef.current = socket
+
+      // Set up socket event listeners
+      socket.on('connect', () => {
+        console.log('✅ Connected to Whisper server')
+        setWhisperConnected(true)
+        setTranscript(prev => prev + '\n[Whisper transcription started...]\n')
+        
+        // Start transcription session
+        socket.emit('start_transcription', { language: languageCode })
+      })
+
+      socket.on('connected', (data: any) => {
+        console.log('🎙️ Whisper server info:', data)
+      })
+
+      socket.on('transcription_started', (data: any) => {
+        console.log('🎬 Transcription session started:', data)
+      })
+
+      socket.on('transcription', (data: any) => {
+        console.log('📝 Whisper transcription:', data)
+        
+        if (data.type === 'final' && data.text) {
+          // Add final transcription to transcript
+          setTranscript(prev => {
+            const newTranscript = prev + (prev && !prev.endsWith(' ') ? ' ' : '') + data.text
+            return newTranscript
+          })
+        }
+      })
+
+      socket.on('error', (data: any) => {
+        console.error('❌ Whisper error:', data)
+        setTranscript(prev => prev + '\n[Whisper error: ' + data.message + ']\n')
+      })
+
+      socket.on('disconnect', () => {
+        console.log('❌ Disconnected from Whisper server')
+        setWhisperConnected(false)
+      })
+
+      // Set up audio processing for Whisper
+      const audioContext = new AudioContext({ sampleRate: 16000 })
+      audioContextRef.current = audioContext
+      
+      const source = audioContext.createMediaStreamSource(mediaStream)
+      const processor = audioContext.createScriptProcessor(4096, 1, 1)
+      
+      processor.onaudioprocess = (event) => {
+        if (socket && socket.connected) {
+          const inputBuffer = event.inputBuffer.getChannelData(0)
+          
+          // Convert to 16-bit PCM
+          const pcmData = new Int16Array(inputBuffer.length)
+          for (let i = 0; i < inputBuffer.length; i++) {
+            const sample = Math.max(-1, Math.min(1, inputBuffer[i]))
+            pcmData[i] = sample * 32767
+          }
+          
+          // Send audio data to Whisper server
+          socket.emit('audio_data', { audio: pcmData.buffer })
+        }
+      }
+      
+      source.connect(processor)
+      processor.connect(audioContext.destination)
+      
+      console.log('✅ Whisper audio processing chain connected')
+
+    } catch (error) {
+      console.error('Failed to start Whisper transcription:', error)
+      setTranscript(prev => prev + '\n[Failed to start Whisper transcription: ' + error + ']\n')
+      setIsTranscribing(false)
+    }
+  }
+
+  const stopWhisperTranscription = async () => {
+    try {
+      if (whisperSocketRef.current) {
+        whisperSocketRef.current.emit('stop_transcription')
+        whisperSocketRef.current.disconnect()
+        whisperSocketRef.current = null
+      }
+      
+      if (audioContextRef.current) {
+        await audioContextRef.current.close()
+        audioContextRef.current = null
+      }
+      
+      setIsTranscribing(false)
+      setWhisperConnected(false)
+      console.log('Whisper transcription stopped')
+    } catch (error) {
+      console.error('Error stopping Whisper transcription:', error)
+    }
+  }
+
   const handleConnect = async () => {
     try {
       console.log('Starting screen sharing...')
@@ -364,7 +483,11 @@ export default function InterviewSessionPage({ params }: { params: { id: string 
       // Handle stream end (when user stops sharing)
       screenStream.getVideoTracks()[0].addEventListener('ended', () => {
         console.log('Screen sharing ended')
-        stopTranscription()
+        if (transcriptionMethod === 'whisper') {
+          stopWhisperTranscription()
+        } else {
+          stopTranscription()
+        }
         setIsScreenSharing(false)
         setIsConnected(false)
         setStream(null)
@@ -418,7 +541,11 @@ export default function InterviewSessionPage({ params }: { params: { id: string 
   }, [isGeneratingResponse]) // eslint-disable-line react-hooks/exhaustive-deps
   
   const handleExit = () => {
-    stopTranscription()
+    if (transcriptionMethod === 'whisper') {
+      stopWhisperTranscription()
+    } else {
+      stopTranscription()
+    }
     router.push("/dashboard/interview-sessions")
   }
 
@@ -535,16 +662,16 @@ Include your key experience, skills, and why you're interested in this position.
       const result = await model.generateContentStream(context)
       let fullResponse = ""
 
-      // Add question to chat if there's a meaningful transcript
-      if (hasQuestion) {
-        const questionMessage: ChatMessage = {
-          id: `question-${Date.now()}`,
-          type: 'user',
-          content: `**Summarized question:** ${cleanTranscript}`,
-          timestamp: new Date()
-        }
-        setChatMessages(prev => [...prev, questionMessage])
-      }
+      // Question removed - only show AI answer
+      // if (hasQuestion) {
+      //   const questionMessage: ChatMessage = {
+      //     id: `question-${Date.now()}`,
+      //     type: 'user',
+      //     content: `**Summarized question:** ${cleanTranscript}`,
+      //     timestamp: new Date()
+      //   }
+      //   setChatMessages(prev => [...prev, questionMessage])
+      // }
 
       // Process the streaming response
       for await (const chunk of result.stream) {
@@ -688,13 +815,23 @@ Include your key experience, skills, and why you're interested in this position.
           {/* Transcript Panel */}
           <div className="flex-1 bg-white border-t flex flex-col min-h-0">
             <div className="p-4 border-b flex-shrink-0">
-              <div className="flex items-center gap-4">
+              <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">Transcript</span>
                   {!isConnected ? (
-                    <Button size="sm" onClick={handleConnect} className="bg-blue-600 hover:bg-blue-700">
-                      Connect
-                    </Button>
+                    <>
+                      <Button size="sm" onClick={handleConnect} className="bg-blue-600 hover:bg-blue-700">
+                        Connect
+                      </Button>
+                      <div className="flex items-center gap-2 ml-4">
+                        <span className="text-xs text-gray-600">Method:</span>
+                        <span className="text-xs font-medium">{transcriptionMethod === 'whisper' ? '🎙️ Local (Whisper)' : '☁️ Cloud (Speechmatics)'}</span>
+                        <Switch 
+                          checked={transcriptionMethod === 'whisper'} 
+                          onCheckedChange={(checked) => setTranscriptionMethod(checked ? 'whisper' : 'speechmatics')}
+                        />
+                      </div>
+                    </>
                   ) : (
                     <div className="flex items-center gap-2">
                       <div className="flex items-center gap-2">
@@ -703,7 +840,10 @@ Include your key experience, skills, and why you're interested in this position.
                         {isTranscribing && (
                           <div className="flex items-center gap-1">
                             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-xs text-blue-600">Transcribing ({selectedLanguage}) • Enhanced Mode</span>
+                            <span className="text-xs text-blue-600">
+                              Transcribing ({selectedLanguage}) • {transcriptionMethod === 'whisper' ? '🎙️ Whisper (Local GPU)' : '☁️ Speechmatics'}
+                              {transcriptionMethod === 'whisper' && whisperConnected && ' • Connected'}
+                            </span>
                           </div>
                         )}
                       </div>
@@ -806,7 +946,7 @@ Include your key experience, skills, and why you're interested in this position.
                     className={`p-3 rounded-lg text-sm ${
                       message.type === 'ai' 
                         ? 'bg-blue-50 border border-blue-200 text-blue-900' 
-                        : 'bg-yellow-50 border border-yellow-200 text-yellow-900'
+                        : 'bg-gray-50 border border-gray-200 text-gray-900'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">

@@ -1,0 +1,37 @@
+# Whisper Backend Requirements for AMD GPU (DirectML on Windows)
+
+# Core dependencies
+flask==3.0.0
+flask-cors==4.0.0
+flask-socketio==5.3.5
+python-socketio==5.10.0
+
+# Audio Processing
+numpy==2.1.0  # Compatible with numba requirement
+
+# PyTorch for DirectML (AMD GPU on Windows)
+# Install these separately in order - see setup instructions below
+# torch==2.0.1
+# torchaudio==2.0.2
+# torch-directml==0.2.0.dev230426
+
+# Whisper
+openai-whisper==20231117
+
+# Optional but recommended
+soundfile==0.12.1
+pydub==0.25.1
+
+# Production server (optional)
+gunicorn==21.2.0
+eventlet==0.33.3
+
+# SETUP INSTRUCTIONS:
+# 1. Install PyTorch CPU version first:
+#    pip install torch==2.0.1 torchaudio==2.0.2
+#
+# 2. Install torch-directml (AMD GPU support):
+#    pip install torch-directml==0.2.0.dev230426
+#
+# 3. Install other dependencies:
+#    pip install -r requirements.txt
